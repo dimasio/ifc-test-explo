@@ -3,9 +3,9 @@
   "type": "module",
   "version": "1.0.0",
   "description": "IFC viewer and 3D extraction tool",
-  "main": "src/lib/ifcExtractor.js",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "NODE_ENV=production node src/server.js",
     "dev": "node src/server.js",
     "convert": "node scripts/convert.js"
   },
@@ -17,7 +17,6 @@
   ],
   "license": "ISC",
   "dependencies": {
-    "body-parser": "^2.3.0",
     "express": "^5.2.1",
     "multer": "^2.2.0",
     "three": "0.160.0",

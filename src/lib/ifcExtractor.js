@@ -7,7 +7,7 @@ import { initIfcAPI, buildPropertiesMap, extractPosition } from './ifcUtils.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const MAX_ELEMENTS = 0; // 0 = без ограничения (загружать все элементы)
+const MAX_ELEMENTS = 0;
 
 function getAllElements(ifcAPI, modelId, maxElements = 0) {
   const elementsMap = new Map();
@@ -32,12 +32,13 @@ function getAllElements(ifcAPI, modelId, maxElements = 0) {
         count++;
 
         if (hasLimit && count >= limit) {
-                  break;
+          break;
         }
       }
     }
   } catch (e) {
-    }
+    // Silent fail
+  }
 
   return elementsMap;
 }
@@ -69,7 +70,6 @@ function getProperties(ifcAPI, expressId, modelId) {
     for (const lineId of allLines) {
       const line = ifcAPI.GetLine(modelId, lineId);
 
-      // 23 = IfcRelDefinesByProperties
       if (!line || line.type !== 23) continue;
 
       if (!line.RelatedObjects || !line.RelatingPropertyDefinition) continue;
@@ -100,6 +100,7 @@ function getProperties(ifcAPI, expressId, modelId) {
       }
     }
   } catch (e) {
+    // Silent fail
   }
 
   return properties;

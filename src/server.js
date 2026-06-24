@@ -1,8 +1,7 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
-import { dirname, join, basename } from 'path';
+import { dirname, join } from 'path';
 import { mkdirSync, existsSync, readFileSync } from 'fs';
-import bodyParser from 'body-parser';
 import multer from 'multer';
 import { extractIfc } from './lib/ifcExtractor.js';
 
@@ -15,7 +14,6 @@ const PORT = process.env.PORT || 3000;
 const UPLOADS_DIR = join(__dirname, '../uploads');
 mkdirSync(UPLOADS_DIR, { recursive: true });
 
-// Multer disk storage - файлы сохраняются напрямую на диск без загрузки в память
 const upload = multer({
   dest: UPLOADS_DIR,
   limits: {
@@ -62,8 +60,7 @@ async function loadPropertiesFromFrag() {
   return true;
 }
 
-// JSON body parser для остальных API endpoints (без text/plain!)
-app.use(bodyParser.json({ limit: '200mb', strict: false }));
+app.use(express.json({ limit: '200mb', strict: false }));
 app.use(express.static(join(__dirname, '../public')));
 app.use('/node_modules/', express.static(join(__dirname, '../node_modules')));
 
@@ -71,7 +68,7 @@ app.get('/', (req, res) => {
   res.sendFile(join(__dirname, '../public/index.html'));
 });
 
-// POST /api/upload - только сохраняет файл (быстрый, без конвертации)
+// POST /api/upload - сохраняет файл без конвертации
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -79,7 +76,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       return;
     }
 
-    // req.file содержит: { filename, path, size, mimetype, ... }
     lastUploadedFile = req.file.filename;
 
     res.json({ 
@@ -87,9 +83,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       fileName: req.file.filename,
       fileSize: req.file.size
     });
-
   } catch (error) {
-    console.error('Ошибка загрузки файла');
     res.status(500).json({ 
       error: 'Ошибка при обработке файла',
       details: error.message 
@@ -111,11 +105,10 @@ app.get('/api/model/data', (req, res) => {
   const page = parseInt(req.query.page) || 1;
   let pageSize = req.query.pageSize;
   
-  // Ограничить pageSize для производительности (убрано значение "Все")
   if (pageSize) {
     pageSize = parseInt(pageSize);
     if (isNaN(pageSize) || pageSize <= 0) pageSize = 50;
-    if (pageSize > 1000) pageSize = 1000; // Максимум 1000 элементов на страницу
+    if (pageSize > 1000) pageSize = 1000;
   } else {
     pageSize = 50;
   }
@@ -212,7 +205,6 @@ app.post('/api/convert', async (req, res) => {
         stderr
       });
     });
-    
   } catch (error) {
     res.status(500).json({ 
       error: 'Ошибка конвертации',
@@ -230,7 +222,6 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error(err.stack);
   res.status(500).json({ 
     error: 'Внутренняя ошибка сервера',
     details: process.env.NODE_ENV === 'production' ? undefined : err.message 
@@ -240,10 +231,8 @@ app.use((err, req, res, next) => {
 let server = null;
 
 function gracefulShutdown() {
-  console.log('Получен сигнал остановки, завершение работы...');
   if (server) {
     server.close(() => {
-      console.log('Сервер остановлен');
       process.exit(0);
     });
   } else {
@@ -254,5 +243,4 @@ function gracefulShutdown() {
 process.on('SIGINT', gracefulShutdown);
 process.on('SIGTERM', gracefulShutdown);
 
-server = app.listen(PORT, () => {
-});
+server = app.listen(PORT, () => {});

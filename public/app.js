@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-// === Глобальные переменные Three.js ===
 let scene = null;
 let camera = null;
 let renderer = null;
@@ -9,15 +8,12 @@ let controls = null;
 let currentModelGroup = null;
 let resizeObserver = null;
 
-// === Demand rendering control ===
 let isRendering = true;
 
-// === Индекс мешей и подсветка ===
 let meshIndex = new Map();
 let highlightedMesh = null;
 let originalMaterial = null;
 
-// === Прелоадер ===
 function showPreloader(message = 'Загрузка модулей...') {
   const preloader = document.getElementById('preloader');
   const text = document.getElementById('preloader-text');
@@ -39,13 +35,11 @@ function hidePreloader() {
   if (preloader) preloader.classList.add('hidden');
 }
 
-// === DOM элементы ===
 const viewerContainer = document.getElementById('viewer-container');
 const gridContainer = document.getElementById('grid-container');
 const uploadBtn = document.getElementById('upload-btn');
 const fileInput = document.getElementById('file-input');
 
-// === ag-Grid ===
 let dataRows = [];
 let gridApi = null;
 let gridOptions = null;
@@ -55,7 +49,6 @@ let isChangingPageSize = false;
 let resetCameraBtn = null;
 let toggleAllBtn = null;
 
-// === UI статусы загрузки ===
 let isUploading = false;
 let statusMessageEl = null;
 let progressBarEl = null;
@@ -305,13 +298,10 @@ function checkWebGLSupport() {
   try {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    if (gl) {
-      return true;
-    }
+    return !!gl;
   } catch (e) {
+    return false;
   }
-  
-  return false;
 }
 
 function initViewer() {
@@ -456,57 +446,48 @@ async function loadIFCModel() {
       const vertexCountFloats = dataView.getUint32(offset, true);
       offset += 4;
       
-      if (vertexCountFloats === 0 || vertexCountFloats % 3 !== 0) {
-        if (offset + 4 > dataView.byteLength) {
-          break;
-        }
-        const faceCountSkip = dataView.getUint32(offset, true);
-        offset += 4;
-        if (offset + faceCountSkip * 4 > dataView.byteLength) {
-          break;
-        }
-        offset += faceCountSkip * 4;
-        continue;
-      }
+       if (vertexCountFloats === 0 || vertexCountFloats % 3 !== 0) {
+         if (offset + 4 > dataView.byteLength) {
+           break;
+         }
+         const faceCountSkip = dataView.getUint32(offset, true);
+         offset += 4;
+         if (offset + faceCountSkip * 4 > dataView.byteLength) {
+           break;
+         }
+         offset += faceCountSkip * 4;
+         continue;
+       }
+       
+       if (offset + vertexCountFloats * 4 > dataView.byteLength) {
+         break;
+       }
+       
+       const numVertices = vertexCountFloats / 3;
+       const vertices = new Float32Array(vertexCountFloats);
+       for (let v = 0; v < vertexCountFloats; v++) {
+         vertices[v] = dataView.getFloat32(offset, true);
+         offset += 4;
+       }
+       
+       if (offset + 4 > dataView.byteLength) {
+         break;
+       }
+       
+       const faceCount = dataView.getUint32(offset, true);
+       offset += 4;
+       
+       if (offset + faceCount * 4 > dataView.byteLength) {
+         break;
+       }
       
-      if (offset + vertexCountFloats * 4 > dataView.byteLength) {
-        break;
-      }
-      
-      const numVertices = vertexCountFloats / 3;
-      const vertices = new Float32Array(vertexCountFloats);
-      for (let v = 0; v < vertexCountFloats; v++) {
-        vertices[v] = dataView.getFloat32(offset, true);
-        offset += 4;
-      }
-      
-      if (offset + 4 > dataView.byteLength) {
-        break;
-      }
-      
-      const faceCount = dataView.getUint32(offset, true);
-      offset += 4;
-      
-      if (faceCount > 1000000) {
-      }
-      
-      if (offset + faceCount * 4 > dataView.byteLength) {
-        break;
-      }
-      
-      const indices = new Uint32Array(faceCount);
-      for (let f = 0; f < faceCount; f++) {
-        indices[f] = dataView.getUint32(offset, true);
-        offset += 4;
-      }
-      
-      const maxIndex = indices.length > 0 ? Math.max(...indices) : 0;
-      const minIndex = indices.length > 0 ? Math.min(...indices) : 0;
-      
-      if (maxIndex >= numVertices) {
-      }
-      
-      const geometry = new THREE.BufferGeometry();
+       const indices = new Uint32Array(faceCount);
+       for (let f = 0; f < faceCount; f++) {
+         indices[f] = dataView.getUint32(offset, true);
+         offset += 4;
+       }
+       
+       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
       geometry.setIndex(new THREE.BufferAttribute(indices, 1));
       

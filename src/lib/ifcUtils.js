@@ -23,8 +23,6 @@ export async function initIfcAPI() {
 
 export function buildPropertiesMap(ifcAPI, modelId) {
   const propertiesMap = new Map();
-  let totalRelations = 0;
-  let skippedRelations = 0;
 
   try {
     const allLines = [...ifcAPI.GetAllLines(modelId)];
@@ -32,26 +30,18 @@ export function buildPropertiesMap(ifcAPI, modelId) {
     for (const expressId of allLines) {
       const line = ifcAPI.GetLine(modelId, expressId);
 
-      // Ищем по наличию GlobalId и RelatedObjects (特指 IfcRelDefinesByProperties)
-      // IFC4 types may have non-standard type codes
-      if (!line || !line.GlobalId || !line.RelatedObjects || !line.RelatingPropertyDefinition) {
+      if (!line || !line.RelatedObjects || !line.RelatingPropertyDefinition) {
         continue;
       }
 
-      // Проверяем, что это именно IfcRelDefinesByProperties
-      // (у других типов с GlobalId обычно нет RelatedObjects + RelatingPropertyDefinition)
-      if (!line.RelatedObjects || !line.RelatingPropertyDefinition) {
+      if (!line.RelatingPropertyDefinition) {
         continue;
       }
 
-      totalRelations++;
-
-      // line.RelatingPropertyDefinition это Handle, нужно получить реальный объект
       const propSetHandle = line.RelatingPropertyDefinition;
       const propSetLine = ifcAPI.GetLine(modelId, propSetHandle.value);
 
       if (!propSetLine || !propSetLine.HasProperties) {
-        skippedRelations++;
         continue;
       }
 
@@ -59,7 +49,6 @@ export function buildPropertiesMap(ifcAPI, modelId) {
 
       for (let j = 0; j < line.RelatedObjects.length; j++) {
         const relatedObject = line.RelatedObjects[j];
-        // relatedObject это Handle с value (expressId)
         const relatedExpressId = relatedObject.value;
 
         if (!relatedExpressId) continue;
@@ -70,7 +59,6 @@ export function buildPropertiesMap(ifcAPI, modelId) {
           propertiesMap.set(relatedExpressId, elementProps);
         }
 
-        // propSetLine.HasProperties это массив Handle
         for (let k = 0; k < propSetLine.HasProperties.length; k++) {
           const propHandle = propSetLine.HasProperties[k];
           const propLine = ifcAPI.GetLine(modelId, propHandle.value);
@@ -84,9 +72,9 @@ export function buildPropertiesMap(ifcAPI, modelId) {
         }
       }
     }
-
-    } catch (e) {
-    }
+  } catch (e) {
+    // Silent fail
+  }
 
   return propertiesMap;
 }
@@ -98,19 +86,17 @@ export function extractPosition(ifcAPI, modelId, expressId) {
       return { x: 0, y: 0, z: 0 };
     }
 
-    // Get the ObjectPlacement expressId
     const placementId = element.ObjectPlacement.value;
     if (!placementId) {
       return { x: 0, y: 0, z: 0 };
     }
 
-    // Recursively traverse the placement hierarchy to sum up coordinates
     let totalX = 0;
     let totalY = 0;
     let totalZ = 0;
 
     let currentPlacementId = placementId;
-    const MAX_DEPTH = 10; // Prevent infinite loops
+    const MAX_DEPTH = 10;
     let depth = 0;
 
     while (currentPlacementId && depth < MAX_DEPTH) {
@@ -119,16 +105,11 @@ export function extractPosition(ifcAPI, modelId, expressId) {
         break;
       }
 
-      // Look for Location.Coordinates
-      // For IfcLocalPlacement, we need to go through:
-      // Placement -> RelativePlacement -> Location -> Coordinates
       let coords = null;
 
       if (placement.RelativePlacement) {
-        // This is IfcLocalPlacement - need to get the RelativePlacement object
         const relPlacement = ifcAPI.GetLine(modelId, placement.RelativePlacement.value);
-        
-        // Then get the Location object
+
         if (relPlacement?.Location) {
           const location = ifcAPI.GetLine(modelId, relPlacement.Location.value);
           if (location?.Coordinates) {
@@ -136,7 +117,6 @@ export function extractPosition(ifcAPI, modelId, expressId) {
           }
         }
       } else if (placement.Location?.Coordinates) {
-        // This is IfcAxis2Placement3D or similar - coordinates are directly in Location
         coords = placement.Location.Coordinates;
       }
 
@@ -146,11 +126,9 @@ export function extractPosition(ifcAPI, modelId, expressId) {
         totalZ += Number(coords[2].value) || 0;
       }
 
-      // For IfcLocalPlacement, follow PlacementRelTo to parent
       if (placement.PlacementRelTo) {
         currentPlacementId = placement.PlacementRelTo.value;
       } else {
-        // No parent placement, stop traversing
         break;
       }
 
@@ -159,6 +137,6 @@ export function extractPosition(ifcAPI, modelId, expressId) {
 
     return { x: totalX, y: totalY, z: totalZ };
   } catch (e) {
-      return { x: 0, y: 0, z: 0 };
+    return { x: 0, y: 0, z: 0 };
   }
 }

@@ -6,7 +6,7 @@
 
 Проект состоит из:
 - `src/server.js` — Express-сервер для API и раздачи статики
-- `public/` — статический фронтенд (index.html, app.js)
+- `public/` — статический фронтенд (index.html, app.js, worker.mjs)
 - `scripts/convert.js` — скрипт конвертации IFC в Fragments формат
 - `src/lib/ifcExtractor.js` — модуль для извлечения данных из IFC-файлов
 
@@ -20,13 +20,21 @@ npm install
 
 ```bash
 npm start
-# или
-npm run dev
 ```
 
 Сервер запустится на `http://localhost:3000`
 
 ## Эндпоинты API
+
+### `GET /health` — Health check
+Проверка работоспособности сервера.
+
+**Ответ:**
+```json
+{
+  "ok": true
+}
+```
 
 ### `GET /` — Главная страница
 Отдаёт `public/index.html`
@@ -40,21 +48,21 @@ npm run dev
 ### `POST /api/upload` — Загрузка IFC-файла
 Загружает IFC-файл и извлекает данные.
 
-**Тело запроса:** содержимое файла (JSON или text/plain)
+**Тело запроса:** файл (multipart/form-data)
 
 **Ответ:**
 ```json
 {
   "success": true,
-  "structuralElements": [...],
-  "underlays": [...]
+  "fileName": "model_1781869108512.ifc",
+  "fileSize": 123456
 }
 ```
 
 ### `GET /api/model/data` — Список элементов (с пагинацией)
 **Параметры:**
 - `page` — номер страницы (по умолчанию: 1)
-- `pageSize` — размер страницы (по умолчанию: 50)
+- `pageSize` — размер страницы (по умолчанию: 50, максимум: 1000)
 
 **Ответ:**
 ```json
@@ -139,7 +147,7 @@ ifcMVP/
 ## Артефакты конвертации
 
 Скрипт `convert.js` создает:
-- `public/model.frag` — бинарный файл с геометрией (архивируется в .gitignore)
-- `public/properties.json` — JSON файл со свойствами (архивируется в .gitignore)
+- `public/model.frag` — бинарный файл с геометрией
+- `public/properties.json` — JSON файл со свойствами
 
-Загруженные IFC-файлы сохраняются в `uploads/` (также архивируется в .gitignore).
+Загруженные IFC-файлы сохраняются в `uploads/`.
