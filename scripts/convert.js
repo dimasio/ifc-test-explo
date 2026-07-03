@@ -2,7 +2,7 @@ import { IfcAPI } from 'web-ifc';
 import { fileURLToPath } from 'url';
 import { join, dirname } from 'path';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
-import { initIfcAPI, buildPropertiesMap, extractPosition } from '../src/lib/ifcUtils.js';
+import { initIfcAPI, buildPropertiesMap, extractPosition } from '../src/ifc/ifcUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

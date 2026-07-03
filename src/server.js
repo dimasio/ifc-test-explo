@@ -3,7 +3,11 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { mkdirSync, existsSync, readFileSync } from 'fs';
 import multer from 'multer';
-import { extractIfc } from './lib/ifcExtractor.js';
+import { extractStoreys } from './ifc/index.js';
+import { extractElementsByStorey } from './ifc/extraction.js';
+import { getStoreyElements } from './ifc/storeyExtractor.js';
+import { initIfcAPI } from './ifc/ifcUtils.js';
+import { normalizeStoreyToPlanJson, createPlanFromElements } from './ifc/normalization.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -215,6 +219,209 @@ app.post('/api/convert', async (req, res) => {
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });
+});
+
+app.get('/api/storeys', async (req, res) => {
+  try {
+    console.log('API /api/storeys called');
+    // Получаем путь к IFC файлу из query params или используем последний загруженный
+    const { filePath } = req.query;
+    console.log('filePath param:', filePath);
+    
+    let ifcFilePath;
+    if (filePath) {
+      // Путь относительно проекта
+      ifcFilePath = join(__dirname, '../', filePath);
+      console.log('ifcFilePath (from param):', ifcFilePath);
+    } else if (lastUploadedFile) {
+      // Используем последний загруженный файл
+      ifcFilePath = join(UPLOADS_DIR, lastUploadedFile);
+    } else {
+      res.status(400).json({ error: 'IFC файл не указан' });
+      return;
+    }
+    
+    if (!existsSync(ifcFilePath)) {
+      console.log('IFC файл не найден:', ifcFilePath);
+      res.status(404).json({ error: 'IFC файл не найден' });
+      return;
+    }
+    
+    console.log('IFC файл найден, инициализация IfcAPI...');
+    // Инициализируем IfcAPI и открываем модель
+    const ifcAPI = await initIfcAPI();
+    console.log('IfcAPI инициализирован');
+    
+    console.log('Чтение файла...');
+    const fileBuffer = readFileSync(ifcFilePath);
+    const ifcByteArray = new Uint8Array(fileBuffer);
+    console.log('Файл прочитан, размер:', ifcByteArray.length);
+    
+    console.log('Открытие модели...');
+    const modelId = ifcAPI.OpenModel(ifcByteArray);
+    console.log('Модель открыта, modelId:', modelId);
+    
+    // Извлекаем этажи
+    console.log('Извлечение этажей...');
+    const storeys = extractStoreys(ifcAPI, modelId);
+    console.log('Этажей найдено:', storeys.length);
+    
+    // Закрываем модель
+    ifcAPI.CloseModel(modelId);
+    
+    console.log('Отправка ответа...');
+    res.json(storeys);
+  } catch (error) {
+    console.error('Ошибка при извлечении этажей:', error);
+    res.status(500).json({ 
+      error: 'Ошибка при извлечении этажей',
+      details: process.env.NODE_ENV === 'production' ? undefined : error.message 
+    });
+  }
+});
+
+// GET /api/storeys/:id/elements - получает элементы конкретного этажа
+app.get('/api/storeys/:id/elements', async (req, res) => {
+  try {
+    const storeyId = req.params.id;
+    
+    // Получаем путь к IFC файлу из query params или используем последний загруженный
+    const { filePath } = req.query;
+    
+    let ifcFilePath;
+    if (filePath) {
+      // Путь относительно проекта
+      ifcFilePath = join(__dirname, '../', filePath);
+    } else if (lastUploadedFile) {
+      // Используем последний загруженный файл
+      ifcFilePath = join(UPLOADS_DIR, lastUploadedFile);
+    } else {
+      res.status(400).json({ error: 'IFC файл не указан' });
+      return;
+    }
+    
+    if (!existsSync(ifcFilePath)) {
+      res.status(404).json({ error: 'IFC файл не найден' });
+      return;
+    }
+    
+    // Извлекаем элементы этажа
+    // storeyId может быть как expressId (число), так и строкой вида "STORY_123"
+    let storeyExpressId = parseInt(storeyId);
+    if (isNaN(storeyExpressId) && storeyId.startsWith('STORY_')) {
+      storeyExpressId = parseInt(storeyId.replace('STORY_', ''));
+    }
+    
+    if (isNaN(storeyExpressId)) {
+      res.status(400).json({ error: 'Некорректный ID этажа' });
+      return;
+    }
+    
+    // Инициализируем IfcAPI и открываем модель
+    const ifcAPI = await initIfcAPI();
+    const fileBuffer = readFileSync(ifcFilePath);
+    const ifcByteArray = new Uint8Array(fileBuffer);
+    const modelId = ifcAPI.OpenModel(ifcByteArray);
+    
+    // Извлекаем этажи
+    const storeys = extractStoreys(ifcAPI, modelId);
+    
+    // Находим нужный этаж
+    const storey = storeys.find(s => s.expressId === storeyExpressId) || storeys.find(s => s.id === storeyId);
+    
+    if (!storey) {
+      ifcAPI.CloseModel(modelId);
+      res.status(404).json({ error: 'Этаж не найден' });
+      return;
+    }
+    
+    const result = await getStoreyElements(ifcAPI, modelId, storey);
+    
+    // Закрываем модель
+    ifcAPI.CloseModel(modelId);
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Ошибка при извлечении элементов этажа:', error);
+    res.status(500).json({ 
+      error: 'Ошибка при извлечении элементов этажа',
+      details: process.env.NODE_ENV === 'production' ? undefined : error.message 
+    });
+  }
+});
+
+// GET /api/storeys/:id/plan - получает нормализованный 2D план этажа
+app.get('/api/storeys/:id/plan', async (req, res) => {
+  try {
+    const storeyId = req.params.id;
+    
+    // Получаем путь к IFC файлу из query params или используем последний загруженный
+    const { filePath } = req.query;
+    
+    let ifcFilePath;
+    if (filePath) {
+      // Путь относительно проекта
+      ifcFilePath = join(__dirname, '../', filePath);
+    } else if (lastUploadedFile) {
+      // Используем последний загруженный файл
+      ifcFilePath = join(UPLOADS_DIR, lastUploadedFile);
+    } else {
+      res.status(400).json({ error: 'IFC файл не указан' });
+      return;
+    }
+    
+    if (!existsSync(ifcFilePath)) {
+      res.status(404).json({ error: 'IFC файл не найден' });
+      return;
+    }
+    
+    // Инициализируем IfcAPI и открываем модель
+    const ifcAPI = await initIfcAPI();
+    const fileBuffer = readFileSync(ifcFilePath);
+    const ifcByteArray = new Uint8Array(fileBuffer);
+    const modelId = ifcAPI.OpenModel(ifcByteArray);
+    
+    // Извлекаем этажи
+    const storeys = extractStoreys(ifcAPI, modelId);
+    
+    // Находим нужный этаж
+    let storey = null;
+    // storeyId может быть как expressId (число), так и строкой вида "STORY_123"
+    let storeyExpressId = parseInt(storeyId);
+    if (isNaN(storeyExpressId) && storeyId.startsWith('STORY_')) {
+      storeyExpressId = parseInt(storeyId.replace('STORY_', ''));
+    }
+    
+    if (isNaN(storeyExpressId)) {
+      res.status(400).json({ error: 'Некорректный ID этажа' });
+      ifcAPI.CloseModel(modelId);
+      return;
+    }
+    
+    storey = storeys.find(s => s.expressId === storeyExpressId) || storeys.find(s => s.id === storeyId);
+    if (!storey) {
+      res.status(404).json({ error: 'Этаж не найден' });
+      ifcAPI.CloseModel(modelId);
+      return;
+    }
+    
+    // Извлекаем элементы этажа
+    const extractionResult = extractElementsByStorey(ifcAPI, modelId, storey);
+    
+    // Нормализуем в 2D план
+    const plan = normalizeStoreyToPlanJson(extractionResult, storey, ifcAPI, modelId);
+    
+    // Закрываем модель
+    ifcAPI.CloseModel(modelId);
+    
+    res.json(plan);
+  } catch (error) {
+    console.error('Ошибка при создании 2D плана:', error);
+    res.status(500).json({ 
+      error: 'Ошибка при создании 2D плана',
+      details: process.env.NODE_ENV === 'production' ? undefined : error.message 
+    });
+  }
 });
 
 app.use((req, res) => {
